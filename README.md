@@ -1,2 +1,3 @@
 # NES-EMULATOR
-the title is self explanatory. (READ THE README) 
+This was made entirely out of AI.
+I am not a programmer. This was made for fun. Nothing serious. 
