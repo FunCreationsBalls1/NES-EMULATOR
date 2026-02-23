@@ -179,6 +179,15 @@ class CPU:
         self.pc = self.bus.read_u16(0xFFFA)
         return 7
 
+    def handle_irq(self) -> int:
+        self.push((self.pc >> 8) & 0xFF)
+        self.push(self.pc & 0xFF)
+        flags = self.p & ~BREAK
+        self.push(flags)
+        self.set_flag(INTERRUPT_DISABLE, True)
+        self.pc = self.bus.read_u16(0xFFFE)
+        return 7
+
     def step(self) -> int:
         dma_cycles = self.bus.consume_dma_cycles()
         if dma_cycles:
@@ -187,6 +196,11 @@ class CPU:
 
         if self.bus.poll_nmi():
             used = self.handle_nmi()
+            self.cycles += used
+            return used
+
+        if self.bus.poll_irq() and not self.get_flag(INTERRUPT_DISABLE):
+            used = self.handle_irq()
             self.cycles += used
             return used
 
@@ -573,6 +587,12 @@ class CPU:
             self.push((ret >> 8) & 0xFF)
             self.push(ret & 0xFF)
             self.pc = target
+            used = 6
+        elif opcode == 0x40:  # RTI
+            self.p = self.pop() | UNUSED
+            lo = self.pop()
+            hi = self.pop()
+            self.pc = (hi << 8) | lo
             used = 6
         elif opcode == 0x60:  # RTS
             lo = self.pop()

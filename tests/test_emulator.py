@@ -428,3 +428,81 @@ def test_ppu_nametable_horizontal_mirroring() -> None:
     bus.write(0x2006, 0x00)
     _ = bus.read(0x2007)
     assert bus.read(0x2007) == 0x77
+
+
+def test_apu_frame_irq_sets_and_read_4015_clears_flag() -> None:
+    cart = Cartridge.from_bytes(make_rom(bytes([0x00])))
+    bus = Bus(cart)
+
+    bus.write(0x4017, 0x00)  # IRQ enabled
+    bus.tick(29830)
+
+    assert bus.poll_irq()
+    status = bus.read(0x4015)
+    assert status & 0x40
+    assert (bus.read(0x4015) & 0x40) == 0
+
+
+def test_apu_frame_irq_inhibit_via_4017_bit6() -> None:
+    cart = Cartridge.from_bytes(make_rom(bytes([0x00])))
+    bus = Bus(cart)
+
+    bus.write(0x4017, 0x40)  # IRQ inhibit
+    bus.tick(29830)
+    assert not bus.poll_irq()
+
+
+def test_cpu_services_irq_when_interrupt_disable_clear() -> None:
+    # CLI ; NOP ; BRK
+    prg = bytearray([0xEA] * 16384)
+    prg[0:4] = bytes([0x58, 0xEA, 0x00, 0xEA])
+
+    # IRQ handler at $9000: LDA #$33 ; BRK
+    prg[0x1000:0x1003] = bytes([0xA9, 0x33, 0x00])
+
+    # vectors
+    prg[0x3FFC] = 0x00
+    prg[0x3FFD] = 0x80
+    prg[0x3FFE] = 0x00
+    prg[0x3FFF] = 0x90
+
+    rom = bytes(bytearray(b"NES\x1a") + bytearray([1, 0, 0, 0]) + bytearray(8) + prg)
+    cpu = CPU(Bus(Cartridge.from_bytes(rom)))
+    cpu.reset()
+
+    used = cpu.step()  # CLI
+    cpu.bus.tick(used)
+    cpu.bus.irq_pending = True
+
+    used = cpu.step()  # IRQ service
+    assert used == 7
+    assert cpu.pc == 0x9000
+
+    used = cpu.step()  # LDA #$33
+    assert used == 2
+    assert cpu.a == 0x33
+
+
+def test_rti_restores_status_and_pc() -> None:
+    # Place RTI at reset vector location.
+    prg = bytearray([0xEA] * 16384)
+    prg[0x0000:0x0002] = bytes([0x40, 0x00])
+    prg[0x0100:0x0102] = bytes([0xA9, 0x44])  # target code at $8100
+    prg[0x0102] = 0x00
+
+    prg[0x3FFC] = 0x00
+    prg[0x3FFD] = 0x80
+
+    rom = bytes(bytearray(b"NES\x1a") + bytearray([1, 0, 0, 0]) + bytearray(8) + prg)
+    cpu = CPU(Bus(Cartridge.from_bytes(rom)))
+    cpu.reset()
+
+    # Pretend an interrupt frame is on stack: push order PCH, PCL, status.
+    cpu.push(0x81)
+    cpu.push(0x00)
+    cpu.push(0x24)
+
+    used = cpu.step()
+    assert used == 6
+    assert cpu.pc == 0x8100
+    assert cpu.p & 0x24 == 0x24

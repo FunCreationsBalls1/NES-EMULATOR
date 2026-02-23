@@ -16,6 +16,8 @@ This project intentionally focuses on a minimal, understandable baseline:
 - OAM register + OAM DMA (`$2003/$2004/$4014`)
 - OAM DMA cycle stall bookkeeping (513-cycle DMA penalty surfaced to CPU core)
 - Nametable mirroring (horizontal/vertical) + palette mirror handling
+- APU frame counter/status register skeleton with IRQ generation
+- CPU IRQ polling + RTI opcode support
 
 > Status: educational prototype, now with mapper 2 + controller IO + basic PPU vblank/NMI timing, but still not a full NES emulator.
 
