@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import struct
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,16 +18,17 @@ INDEX_HTML = """<!doctype html>
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
     <title>NES Emulator (CPU Core)</title>
     <style>
-      body { font-family: sans-serif; max-width: 920px; margin: 2rem auto; padding: 0 1rem; }
+      body { font-family: sans-serif; max-width: 980px; margin: 2rem auto; padding: 0 1rem; }
       .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-      pre { background: #111; color: #0f0; padding: 1rem; border-radius: 6px; overflow: auto; max-height: 340px; }
+      pre { background: #111; color: #0f0; padding: 1rem; border-radius: 6px; overflow: auto; max-height: 260px; }
       button { padding: .6rem 1rem; }
       table td { padding: .25rem .75rem .25rem 0; }
+      #screen { width: 512px; image-rendering: pixelated; border: 2px solid #333; }
     </style>
   </head>
   <body>
     <h1>NES Emulator Web Runner</h1>
-    <p>Upload a mapper-0 (.nes) ROM and execute it on the emulator CPU core.</p>
+    <p>Upload a ROM and run it. A rendered frame will appear below.</p>
 
     <div class=\"card\">
       <input id=\"rom\" type=\"file\" accept=\".nes\" />
@@ -34,6 +37,11 @@ INDEX_HTML = """<!doctype html>
       <label><input id=\"trace\" type=\"checkbox\" /> Include trace</label>
       <button id=\"run\">Run ROM</button>
       <p id=\"status\"></p>
+    </div>
+
+    <div class=\"card\">
+      <h3>Screen</h3>
+      <img id=\"screen\" alt=\"NES frame\" />
     </div>
 
     <div class=\"card\">
@@ -50,6 +58,7 @@ INDEX_HTML = """<!doctype html>
       const statusEl = document.getElementById('status');
       const regsEl = document.getElementById('regs');
       const traceEl = document.getElementById('traceOut');
+      const screenEl = document.getElementById('screen');
 
       function setRegs(state) {
         regsEl.innerHTML = '';
@@ -92,6 +101,7 @@ INDEX_HTML = """<!doctype html>
         statusEl.textContent = `Done. ${data.termination} after ${data.steps} steps.`;
         setRegs(data.cpu_state);
         traceEl.textContent = (data.trace || []).join('\n');
+        screenEl.src = `data:image/bmp;base64,${data.frame_bmp_base64}`;
       });
     </script>
   </body>
@@ -105,6 +115,43 @@ class RunResult:
     steps: int
     cpu_state: dict[str, int]
     trace: list[str]
+    frame_bmp_base64: str
+
+
+def rgb_to_bmp_base64(width: int, height: int, rgb: bytes) -> str:
+    row_stride = (width * 3 + 3) & ~3
+    pixel_data_size = row_stride * height
+    file_size = 14 + 40 + pixel_data_size
+
+    file_header = struct.pack("<2sIHHI", b"BM", file_size, 0, 0, 14 + 40)
+    dib_header = struct.pack(
+        "<IIIHHIIIIII",
+        40,
+        width,
+        height,
+        1,
+        24,
+        0,
+        pixel_data_size,
+        2835,
+        2835,
+        0,
+        0,
+    )
+
+    out = bytearray()
+    for y in range(height - 1, -1, -1):
+        row = bytearray()
+        base = y * width * 3
+        for x in range(width):
+            i = base + x * 3
+            r, g, b = rgb[i], rgb[i + 1], rgb[i + 2]
+            row.extend((b, g, r))
+        row.extend(b"\x00" * (row_stride - width * 3))
+        out.extend(row)
+
+    bmp = file_header + dib_header + bytes(out)
+    return base64.b64encode(bmp).decode("ascii")
 
 
 def run_rom_bytes(rom: bytes, max_steps: int = 200000, include_trace: bool = False) -> RunResult:
@@ -132,11 +179,15 @@ def run_rom_bytes(rom: bytes, max_steps: int = 200000, include_trace: bool = Fal
             termination = "program terminated by BRK"
             break
 
+    frame = bus.ppu.render_frame_rgb()
+    frame_b64 = rgb_to_bmp_base64(256, 240, frame)
+
     return RunResult(
         termination=termination,
         steps=steps,
         cpu_state={"A": cpu.a, "X": cpu.x, "Y": cpu.y, "P": cpu.p, "SP": cpu.sp, "PC": cpu.pc, "cycles": cpu.cycles},
         trace=trace,
+        frame_bmp_base64=frame_b64,
     )
 
 
@@ -183,6 +234,7 @@ class EmulatorWebHandler(BaseHTTPRequestHandler):
                 "steps": result.steps,
                 "cpu_state": result.cpu_state,
                 "trace": result.trace,
+                "frame_bmp_base64": result.frame_bmp_base64,
             }
         )
 

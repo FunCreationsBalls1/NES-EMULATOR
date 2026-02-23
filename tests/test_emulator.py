@@ -199,6 +199,7 @@ def test_web_runner_executes_rom_and_returns_cpu_state() -> None:
     assert result.cpu_state["A"] == 0x2A
     assert result.steps == 2
     assert len(result.trace) == 2
+    assert len(result.frame_bmp_base64) > 100
 
 
 def test_mapper2_bank_switching() -> None:
@@ -506,3 +507,36 @@ def test_rti_restores_status_and_pc() -> None:
     assert used == 6
     assert cpu.pc == 0x8100
     assert cpu.p & 0x24 == 0x24
+
+
+def test_ppu_render_frame_rgb_size() -> None:
+    cart = Cartridge.from_bytes(make_rom(bytes([0x00])))
+    bus = Bus(cart)
+    frame = bus.ppu.render_frame_rgb()
+    assert len(frame) == 256 * 240 * 3
+
+
+def test_ppu_render_uses_chr_pattern_bits() -> None:
+    # Build a ROM where tile 1 has plane0 bits set to produce bright pixels on first row.
+    prg = bytearray([0xEA] * 16384)
+    prg[0x3FFC] = 0x00
+    prg[0x3FFD] = 0x80
+
+    chr_rom = bytearray([0x00] * 8192)
+    # Tile 1, row 0, low plane = 0xFF (all pixels color id 1), high plane = 0x00
+    chr_rom[16] = 0xFF
+    chr_rom[24] = 0x00
+
+    header = bytearray(b"NES\x1a")
+    header.extend([1, 1, 0x00, 0x00])
+    header.extend(b"\x00" * 8)
+    rom = bytes(header + prg + chr_rom)
+
+    bus = Bus(Cartridge.from_bytes(rom))
+    bus.write(0x2006, 0x20)
+    bus.write(0x2006, 0x00)
+    bus.write(0x2007, 0x01)  # place tile 1 at top-left nametable entry
+
+    frame = bus.ppu.render_frame_rgb()
+    # top-left pixel should be bright (color id 1 -> 85)
+    assert frame[0] == 85 and frame[1] == 85 and frame[2] == 85

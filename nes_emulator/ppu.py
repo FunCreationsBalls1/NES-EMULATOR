@@ -29,6 +29,7 @@ class PPU:
     vram: bytearray = field(default_factory=lambda: bytearray(0x800))
     palette: bytearray = field(default_factory=lambda: bytearray(0x20))
     oam: bytearray = field(default_factory=lambda: bytearray(256))
+    chr_rom: bytes = bytes(8192)
     mirroring: str = "horizontal"
 
     def vram_increment(self) -> int:
@@ -70,7 +71,6 @@ class PPU:
         self.vram_addr = (self.vram_addr + self.vram_increment()) & 0x3FFF
 
         if addr >= 0x3F00:
-            # Palette reads are not delayed, but buffer updates from mirrored nametable space.
             self.data_buffer = self._vram_read(addr - 0x1000)
             return self._vram_read(addr)
 
@@ -96,11 +96,13 @@ class PPU:
 
         if self.mirroring == "vertical":
             phys = table % 2
-        else:  # horizontal
+        else:
             phys = 0 if table in (0, 1) else 1
         return phys * 0x400 + offset
 
     def _vram_read(self, addr: int) -> int:
+        if 0x0000 <= addr <= 0x1FFF and self.chr_rom:
+            return self.chr_rom[addr % len(self.chr_rom)]
         if 0x2000 <= addr <= 0x3EFF:
             return self.vram[self._nametable_index(addr)]
         if addr >= 0x3F00:
@@ -108,12 +110,13 @@ class PPU:
         return 0
 
     def _vram_write(self, addr: int, value: int) -> None:
+        if 0x0000 <= addr <= 0x1FFF and len(self.chr_rom) == 0:
+            return
         if 0x2000 <= addr <= 0x3EFF:
             self.vram[self._nametable_index(addr)] = value
             return
         if addr >= 0x3F00:
             self.palette[self._palette_index(addr)] = value
-
 
     def write_oam_addr(self, value: int) -> None:
         self.oam_addr = value & 0xFF
@@ -130,8 +133,32 @@ class PPU:
             self.oam[self.oam_addr] = b
             self.oam_addr = (self.oam_addr + 1) & 0xFF
 
+    def render_frame_rgb(self) -> bytes:
+        """Render a simple 256x240 background frame from nametable+pattern data."""
+        frame = bytearray(256 * 240 * 3)
+        base_table = 0x1000 if (self.ctrl & 0x10) else 0x0000
+
+        for y in range(240):
+            tile_y = y // 8
+            row_in_tile = y % 8
+            for x in range(256):
+                tile_x = x // 8
+                col_in_tile = x % 8
+                nt_addr = 0x2000 + tile_y * 32 + tile_x
+                tile_index = self._vram_read(nt_addr)
+                pattern_addr = base_table + tile_index * 16 + row_in_tile
+                lo = self._vram_read(pattern_addr)
+                hi = self._vram_read(pattern_addr + 8)
+                bit = 7 - col_in_tile
+                color_id = ((lo >> bit) & 1) | (((hi >> bit) & 1) << 1)
+                shade = (color_id * 85) & 0xFF
+                idx = (y * 256 + x) * 3
+                frame[idx] = shade
+                frame[idx + 1] = shade
+                frame[idx + 2] = shade
+        return bytes(frame)
+
     def step(self, ppu_cycles: int) -> bool:
-        """Advance PPU timing. Returns True when an NMI should be fired."""
         nmi_triggered = False
         for _ in range(ppu_cycles):
             self.cycle += 1

@@ -70,4 +70,4 @@ The web runner provides a simple website where users can upload a `.nes` ROM and
 - Open: `http://localhost:8000`
 - Upload ROM and click **Run ROM**
 
-This currently executes the implemented CPU core and reports register/trace output.
+This now executes the CPU core and renders a 256x240 frame preview in the browser (plus register/trace output).

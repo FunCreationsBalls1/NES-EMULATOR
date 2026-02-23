@@ -24,6 +24,7 @@ class Bus:
 
     def __post_init__(self) -> None:
         self.ppu.mirroring = self.cartridge.mirroring
+        self.ppu.chr_rom = self.cartridge.chr_rom
 
     def read(self, addr: int) -> int:
         addr &= 0xFFFF
