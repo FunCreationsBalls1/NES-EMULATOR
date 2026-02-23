@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nes-emulator"
+version = "0.1.0"
+description = "A from-scratch educational NES emulator core"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  {name = "Codex"}
+]
+dependencies = []
+
+[project.scripts]
+nes-emulator = "nes_emulator.cli:main"
+nes-emulator-web = "nes_emulator.web:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-q"
