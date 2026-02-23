@@ -31,6 +31,25 @@ nes-emulator path/to/game.nes --trace
 nes-emulator-web --port 8000
 ```
 
+## One-command setup and run
+
+```bash
+./run_emulator.sh
+```
+
+This command will:
+- create a local `.venv` (if missing),
+- install/update dependencies,
+- install this project in editable mode,
+- launch the web emulator at `http://localhost:8000`.
+
+Other modes:
+
+```bash
+./run_emulator.sh cli path/to/game.nes
+./run_emulator.sh setup-only
+```
+
 ## Implemented CPU opcodes
 
 `NOP, LDA, LDX, LDY, STA, STX, STY, TAX, TAY, TXA, TYA, TSX, TXS, PHA, PLA, PHP, PLP, INX, INY, DEX, DEY, INC, DEC, ADC, SBC, AND, ORA, EOR, BIT, CMP, CPX, CPY, ASL, LSR, ROL, ROR, CLC, SEC, CLI, SEI, CLV, CLD, SED, JMP (abs/ind), JSR, RTS, BNE, BEQ, BCC, BCS, BPL, BMI, BVC, BVS, BRK`
